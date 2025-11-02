@@ -1,0 +1,105 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production.local
+
+# Backend - Python
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/*.pyc
+backend/*.pyo
+backend/**/*.pyo
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.mypy_cache/
+backend/.dmypy.json
+backend/dmypy.json
+
+# Backend - Logs
+backend/logs/
+backend/*.log
+
+# Backend - IDE
+backend/.vscode/
+backend/.idea/
+backend/*.swp
+backend/*.swo
+backend/*~
+
+# Frontend - Node
+frontend/node_modules/
+frontend/npm-debug.log
+frontend/yarn-error.log
+frontend/.npm
+frontend/.eslintcache
+
+# Frontend - Next.js
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# Frontend - IDE
+frontend/.vscode/
+frontend/.idea/
+frontend/*.swp
+frontend/*.swo
+frontend/*~
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Misc
+.cache/
+.tmp/
+temp/
+tmp/
+
+# Architecture diagrams (if generated)
+*.png
+*.jpg
+*.jpeg
+*.gif
+!frontend/public/**/*.png
+!frontend/public/**/*.jpg
+
+# Git
+.git/
+.gitkeep

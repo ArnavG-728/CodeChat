@@ -1,0 +1,368 @@
+# retrieval.py - Advanced Multi-Strategy Code Retrieval System
+import os
+from dotenv import load_dotenv
+from neo4j import GraphDatabase
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from logger_config import setup_logger
+from typing import List, Dict, Any
+import re
+
+# Setup logger
+logger = setup_logger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+# Initialize embedding model once
+embedding_model = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+)
+
+# Get database name and connection URL
+db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
+neo4j_uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
+
+# Initialize Neo4j driver
+driver = GraphDatabase.driver(
+    neo4j_uri,
+    auth=("neo4j", os.getenv("password"))
+)
+
+# List of vector indexes to search
+SUMMARY_INDEXES = [
+    ('fileSummaryEmbeddingIndex', 'FileNode'),
+    ('classSummaryEmbeddingIndex', 'ClassNode'),
+    ('functionSummaryEmbeddingIndex', 'FunctionNode')
+]
+
+CODE_INDEXES = [
+    ('fileCodeEmbeddingIndex', 'FileNode'),
+    ('classCodeEmbeddingIndex', 'ClassNode'),
+    ('functionCodeEmbeddingIndex', 'FunctionNode')
+]
+
+
+def retrieve_semantic_results(query: str, top_k: int = 10, use_code_index: bool = False, repository: str = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve results using semantic similarity search on embeddings.
+    Can search either summary or code embeddings.
+    Optionally filters by repository.
+    """
+    logger.debug(f"🔍 Semantic search: {query[:50]}... (use_code_index={use_code_index}, repo={repository})")
+    
+    # Embed the query
+    embedding = embedding_model.embed_query(query)
+    logger.debug(f"Generated embedding vector of length {len(embedding)}")
+
+    all_results = []
+    indexes = CODE_INDEXES if use_code_index else SUMMARY_INDEXES
+
+    with driver.session(database=db_name) as session:
+        for index_name, node_type in indexes:
+            try:
+                if repository:
+                    # Filter by repository
+                    cypher = f"""
+                        CALL db.index.vector.queryNodes('{index_name}', {top_k * 2}, $embedding)
+                        YIELD node, score
+                        WHERE (:RepositoryNode {{name: $repo_name}})-[:CHILD*]->(node)
+                        RETURN 
+                            node.name AS name, 
+                            node.summary AS summary, 
+                            node.code AS code,
+                            node.lineno AS lineno,
+                            score
+                        ORDER BY score DESC
+                        LIMIT {top_k}
+                    """
+                    res = session.run(cypher, embedding=embedding, repo_name=repository)
+                else:
+                    # Original query without repository filter
+                    cypher = f"""
+                        CALL db.index.vector.queryNodes('{index_name}', {top_k}, $embedding)
+                        YIELD node, score
+                        RETURN 
+                            node.name AS name, 
+                            node.summary AS summary, 
+                            node.code AS code,
+                            node.lineno AS lineno,
+                            score
+                        ORDER BY score DESC
+                    """
+                    res = session.run(cypher, embedding=embedding)
+                
+                count = 0
+                for record in res:
+                    all_results.append({
+                        'type': node_type,
+                        'name': record['name'],
+                        'summary': record.get('summary') or "",
+                        'code': record.get('code') or "",
+                        'lineno': record.get('lineno') or 0,
+                        'score': record['score'],
+                        'search_type': 'code' if use_code_index else 'summary'
+                    })
+                    count += 1
+                logger.debug(f"Found {count} results from {index_name}")
+            except Exception as e:
+                logger.warning(f"⚠️ Error querying {index_name}: {e}")
+
+    all_results.sort(key=lambda x: x['score'], reverse=True)
+    return all_results[:top_k]
+
+
+def retrieve_graph_based_results(query: str, top_k: int = 10, repository: str = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve results using graph-based search (keyword matching + relationships).
+    Finds nodes by name/summary keywords and includes related nodes.
+    Optionally filters by repository.
+    """
+    logger.debug(f"📊 Graph-based search: {query[:50]}... (repo={repository})")
+    
+    # Extract keywords from query
+    keywords = query.lower().split()
+    keywords = [kw for kw in keywords if len(kw) > 2]  # Filter short words
+    
+    all_results = []
+    
+    with driver.session(database=db_name) as session:
+        try:
+            if repository:
+                # Search with repository filter
+                cypher = """
+                    MATCH (r:RepositoryNode {name: $repo_name})-[:CHILD*]->(n:FileNode|ClassNode|FunctionNode)
+                    WHERE 
+                        ANY(kw IN $keywords WHERE toLower(n.name) CONTAINS kw) OR
+                        ANY(kw IN $keywords WHERE toLower(n.summary) CONTAINS kw)
+                    RETURN 
+                        n.name AS name,
+                        n.summary AS summary,
+                        n.code AS code,
+                        n.lineno AS lineno,
+                        labels(n)[0] AS type
+                    LIMIT $limit
+                """
+                res = session.run(cypher, keywords=keywords, repo_name=repository, limit=top_k * 2)
+            else:
+                # Original search without repository filter
+                cypher = """
+                    MATCH (n:FileNode|ClassNode|FunctionNode)
+                    WHERE 
+                        ANY(kw IN $keywords WHERE toLower(n.name) CONTAINS kw) OR
+                        ANY(kw IN $keywords WHERE toLower(n.summary) CONTAINS kw)
+                    RETURN 
+                        n.name AS name,
+                        n.summary AS summary,
+                        n.code AS code,
+                        n.lineno AS lineno,
+                        labels(n)[0] AS type
+                    LIMIT $limit
+                """
+                res = session.run(cypher, keywords=keywords, limit=top_k * 2)
+            
+            for record in res:
+                # Calculate relevance score based on keyword matches
+                name = record['name'].lower()
+                summary = record['summary'].lower()
+                matches = sum(1 for kw in keywords if kw in name or kw in summary)
+                score = matches / len(keywords) if keywords else 0
+                
+                all_results.append({
+                    'type': record['type'],
+                    'name': record['name'],
+                    'summary': record['summary'],
+                    'code': record['code'],
+                    'lineno': record['lineno'],
+                    'score': score,
+                    'search_type': 'graph'
+                })
+            
+            logger.debug(f"Found {len(all_results)} results from graph search")
+        except Exception as e:
+            logger.warning(f"⚠️ Error in graph-based search: {e}")
+    
+    all_results.sort(key=lambda x: x['score'], reverse=True)
+    return all_results[:top_k]
+
+
+def retrieve_related_nodes(node_name: str, node_type: str, depth: int = 2, repository: str = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve nodes related to a given node through the graph structure.
+    Includes parent, children, and siblings.
+    Optionally filters by repository.
+    """
+    logger.debug(f"🔗 Retrieving related nodes for {node_type}: {node_name} (repo={repository})")
+    
+    related_results = []
+    
+    with driver.session(database=db_name) as session:
+        try:
+            # Get child nodes (the graph uses CHILD relationships, not PARENT)
+            if repository:
+                cypher_child = """
+                    MATCH (r:RepositoryNode {name: $repo_name})-[:CHILD*]->(n:FileNode|ClassNode|FunctionNode {name: $name})-[:CHILD*1..2]->(child)
+                    RETURN 
+                        child.name AS name,
+                        child.summary AS summary,
+                        child.code AS code,
+                        child.lineno AS lineno,
+                        labels(child)[0] AS type,
+                        'child' AS relation
+                """
+                res = session.run(cypher_child, name=node_name, repo_name=repository)
+            else:
+                cypher_child = """
+                    MATCH (n:FileNode|ClassNode|FunctionNode {name: $name})-[:CHILD*1..2]->(child)
+                    RETURN 
+                        child.name AS name,
+                        child.summary AS summary,
+                        child.code AS code,
+                        child.lineno AS lineno,
+                        labels(child)[0] AS type,
+                        'child' AS relation
+                """
+                res = session.run(cypher_child, name=node_name)
+            
+            for record in res:
+                related_results.append({
+                    'type': record['type'],
+                    'name': record['name'],
+                    'summary': record['summary'],
+                    'code': record['code'],
+                    'lineno': record['lineno'],
+                    'score': 0.8,  # Child nodes get high score
+                    'search_type': 'related',
+                    'relation': record['relation']
+                })
+            
+            # Get parent nodes (reverse relationship - nodes that have this node as a child)
+            if repository:
+                cypher_parents = """
+                    MATCH (r:RepositoryNode {name: $repo_name})-[:CHILD*]->(parent:FileNode|ClassNode|FunctionNode)-[:CHILD*1..2]->(n:FileNode|ClassNode|FunctionNode {name: $name})
+                    RETURN 
+                        parent.name AS name,
+                        parent.summary AS summary,
+                        parent.code AS code,
+                        parent.lineno AS lineno,
+                        labels(parent)[0] AS type,
+                        'parent' AS relation
+                """
+                res = session.run(cypher_parents, name=node_name, repo_name=repository)
+            else:
+                cypher_parents = """
+                    MATCH (parent:FileNode|ClassNode|FunctionNode)-[:CHILD*1..2]->(n:FileNode|ClassNode|FunctionNode {name: $name})
+                    RETURN 
+                        parent.name AS name,
+                        parent.summary AS summary,
+                        parent.code AS code,
+                        parent.lineno AS lineno,
+                        labels(parent)[0] AS type,
+                        'parent' AS relation
+                """
+                res = session.run(cypher_parents, name=node_name)
+            for record in res:
+                related_results.append({
+                    'type': record['type'],
+                    'name': record['name'],
+                    'summary': record['summary'],
+                    'code': record['code'],
+                    'lineno': record['lineno'],
+                    'score': 0.7,  # Parent nodes get slightly lower score
+                    'search_type': 'related',
+                    'relation': record['relation']
+                })
+            
+            logger.debug(f"Found {len(related_results)} related nodes")
+        except Exception as e:
+            logger.warning(f"⚠️ Error retrieving related nodes: {e}")
+    
+    return related_results
+
+
+def retrieve_top_k(query: str, top_k: int = 10, use_multi_strategy: bool = True, repository: str = None) -> List[Dict[str, Any]]:
+    """
+    Advanced multi-strategy retrieval system.
+    Combines semantic search, graph-based search, and code search for comprehensive results.
+    
+    Args:
+        query: User query string
+        top_k: Number of results to return
+        use_multi_strategy: If True, uses multiple search strategies; if False, only semantic
+        repository: Optional repository name to filter results
+    
+    Returns:
+        List of top-k results with combined scores
+    """
+    logger.info(f"🔍 Retrieving top {top_k} results for query: {query[:50]}... (repo={repository})")
+    
+    if not use_multi_strategy:
+        # Legacy mode: single semantic search
+        results = retrieve_semantic_results(query, top_k=top_k, repository=repository)
+        logger.info(f"✅ Returning {len(results)} results (semantic only)")
+        return results
+    
+    # Multi-strategy approach
+    all_results = {}
+    
+    # Strategy 1: Semantic search on summaries (primary)
+    logger.debug("📌 Strategy 1: Semantic search on summaries")
+    semantic_results = retrieve_semantic_results(query, top_k=top_k, use_code_index=False, repository=repository)
+    for result in semantic_results:
+        key = (result['type'], result['name'])
+        all_results[key] = result
+        all_results[key]['score'] = result['score'] * 1.0  # Weight: 100%
+    
+    # Strategy 2: Graph-based search (keyword matching)
+    logger.debug("📌 Strategy 2: Graph-based keyword search")
+    graph_results = retrieve_graph_based_results(query, top_k=top_k, repository=repository)
+    for result in graph_results:
+        key = (result['type'], result['name'])
+        if key in all_results:
+            # Boost score if found in multiple strategies
+            all_results[key]['score'] = min(1.0, all_results[key]['score'] + result['score'] * 0.3)
+            all_results[key]['search_type'] = 'hybrid'
+        else:
+            all_results[key] = result
+            all_results[key]['score'] = result['score'] * 0.6  # Weight: 60%
+    
+    # Strategy 3: Code embedding search (for technical queries)
+    logger.debug("📌 Strategy 3: Code embedding search")
+    code_results = retrieve_semantic_results(query, top_k=top_k // 2, use_code_index=True, repository=repository)
+    for result in code_results:
+        key = (result['type'], result['name'])
+        if key in all_results:
+            all_results[key]['score'] = min(1.0, all_results[key]['score'] + result['score'] * 0.2)
+            all_results[key]['search_type'] = 'hybrid'
+        else:
+            all_results[key] = result
+            all_results[key]['score'] = result['score'] * 0.4  # Weight: 40%
+    
+    # Convert to list and sort
+    final_results = list(all_results.values())
+    final_results.sort(key=lambda x: x['score'], reverse=True)
+    final_results = final_results[:top_k]
+    
+    # Add related nodes for top results
+    logger.debug("📌 Strategy 4: Enriching with related nodes")
+    enriched_results = []
+    for i, result in enumerate(final_results):
+        enriched_results.append(result)
+        if i < 3:  # Only for top 3 results
+            related = retrieve_related_nodes(result['name'], result['type'], depth=1, repository=repository)
+            enriched_results.extend(related[:2])  # Add top 2 related nodes
+    
+    # Final deduplication and sorting
+    seen = set()
+    deduplicated = []
+    for result in enriched_results:
+        key = (result['type'], result['name'])
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(result)
+    
+    deduplicated.sort(key=lambda x: x['score'], reverse=True)
+    final_results = deduplicated[:top_k]
+    
+    logger.info(f"✅ Returning {len(final_results)} results (multi-strategy)")
+    return final_results
