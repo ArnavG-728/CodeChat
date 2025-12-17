@@ -10,21 +10,21 @@ from dotenv import load_dotenv
 from datetime import datetime
 import json
 
-# Import backend functions
-from retrieval import retrieve_top_k, embedding_model
+# Import backend functions (using relative imports)
+from .retrieval import retrieve_top_k, embedding_model
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from neo4j import GraphDatabase
-from language_detector import detect_language, analyze_repository
-from load_codebase_dynamic import DynamicGithubLoader
-from extract_structure import extract_codebase_structure
-from ingest_structure import IngestStructure
-from code_embeddings import run_all as generate_embeddings
-from generate_summary import main as generate_summaries
-from create_vector_indexes import create_vector_indexes
-from logger_config import setup_logger
-from query_processor import get_processor
-from cache_manager import get_cache, cached
+from .language_detector import detect_language, analyze_repository
+from .load_codebase_dynamic import DynamicGithubLoader
+from .extract_structure import extract_codebase_structure
+from .ingest_structure import IngestStructure
+from .code_embeddings import run_all as generate_embeddings
+from .generate_summary import main as generate_summaries
+from .create_vector_indexes import create_vector_indexes
+from .logger_config import setup_logger
+from .query_processor import get_processor
+from .cache_manager import get_cache, cached
 
 load_dotenv()
 
