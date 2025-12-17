@@ -1,11 +1,11 @@
 from dotenv import load_dotenv
 import os
 from neomodel import config
-from create_schema import FileNode, ClassNode, FunctionNode
+from .create_schema import FileNode, ClassNode, FunctionNode
 from tqdm import tqdm
 import torch
-from unixcoder import UniXcoder
-from logger_config import setup_logger
+from .unixcoder import UniXcoder
+from .logger_config import setup_logger
 
 # Step 1: Load env and configure Neo4j
 load_dotenv()

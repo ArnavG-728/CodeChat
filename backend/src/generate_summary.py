@@ -1,11 +1,11 @@
 from dotenv import load_dotenv
 import os
 from neomodel import config
-from create_schema import FileNode, ClassNode, FunctionNode
+from .create_schema import FileNode, ClassNode, FunctionNode
 from tqdm import tqdm
 from langchain_google_genai import ChatGoogleGenerativeAI,GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)

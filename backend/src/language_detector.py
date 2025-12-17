@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Dict, List
 import logging
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)

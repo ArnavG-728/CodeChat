@@ -2,7 +2,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
 from langchain_community.document_loaders import GithubFileLoader
 from dotenv import load_dotenv
 import os
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 # Load environment variables
 load_dotenv()

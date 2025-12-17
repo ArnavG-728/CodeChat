@@ -9,7 +9,7 @@ from typing import Any, Optional, Dict
 from functools import wraps
 import hashlib
 import json
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 logger = setup_logger(__name__)
 

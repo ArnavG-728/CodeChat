@@ -11,7 +11,7 @@ from datetime import datetime
 import json
 
 # Import backend functions (using relative imports)
-from .retrieval import retrieve_top_k, embedding_model
+from .retrieval import retrieve_top_k
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from neo4j import GraphDatabase

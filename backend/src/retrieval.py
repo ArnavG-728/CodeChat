@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from logger_config import setup_logger
+from .logger_config import setup_logger
 from typing import List, Dict, Any
 import re
 

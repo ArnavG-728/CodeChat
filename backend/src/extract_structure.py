@@ -1,7 +1,7 @@
 import ast
 from typing import List, Dict, Any
-from extract_procedural import ProceduralExtractor, PROCEDURAL_EXTENSIONS, get_language_from_extension
-from logger_config import setup_logger
+from .extract_procedural import ProceduralExtractor, PROCEDURAL_EXTENSIONS, get_language_from_extension
+from .logger_config import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)

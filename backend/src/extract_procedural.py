@@ -1,6 +1,6 @@
 import re
 from typing import List, Dict, Any
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)

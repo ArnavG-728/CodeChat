@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os
 from neo4j import GraphDatabase
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
 load_dotenv()
 

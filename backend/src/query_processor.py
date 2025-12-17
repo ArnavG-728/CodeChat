@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Tuple
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from logger_config import setup_logger
+from .logger_config import setup_logger
 import re
 
 load_dotenv()

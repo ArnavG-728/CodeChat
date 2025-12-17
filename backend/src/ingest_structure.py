@@ -1,12 +1,12 @@
-from create_schema import FileNode, ClassNode, FunctionNode, RepositoryNode
+from .create_schema import FileNode, ClassNode, FunctionNode, RepositoryNode
 from neomodel import config
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 import os
 import re
-from logger_config import setup_logger
+from .logger_config import setup_logger
 
-from extract_structure import extract_codebase_structure
+from .extract_structure import extract_codebase_structure
 
 # Load Neo4j credentials from .env
 load_dotenv()
@@ -18,8 +18,16 @@ NEO4J_USERNAME = os.getenv('NEO4J_USERNAME', 'neo4j')
 NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', '')
 NEO4J_URI = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
 # Extract host and port from URI for bolt connection
-NEO4J_HOST = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '').split(':')[0]
-NEO4J_PORT = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '').split(':')[1].split('/')[0] if ':' in NEO4J_URI else '7687'
+uri_without_protocol = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '')
+if ':' in uri_without_protocol and uri_without_protocol.count(':') >= 1:
+    parts = uri_without_protocol.split(':')
+    NEO4J_HOST = parts[0]
+    # Extract port, handling potential path after port
+    port_part = parts[1].split('/')[0] if '/' in parts[1] else parts[1]
+    NEO4J_PORT = port_part if port_part else '7687'
+else:
+    NEO4J_HOST = uri_without_protocol.split('/')[0]
+    NEO4J_PORT = '7687'
 
 NODE_TYPE_MAP = {
     "file": FileNode,
