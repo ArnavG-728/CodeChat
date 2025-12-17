@@ -13,46 +13,121 @@ logger = setup_logger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Initialize embedding model once with error handling
-try:
-    google_api_key = os.getenv("GOOGLE_API_KEY", "")
-    if not google_api_key:
-        logger.error("❌ GOOGLE_API_KEY not found in environment variables")
-        raise ValueError("GOOGLE_API_KEY is required for embedding model initialization")
-    
-    logger.info("🔧 Initializing Google Generative AI Embeddings...")
-    embedding_model = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
-        google_api_key=google_api_key,
-    )
-    logger.info("✅ Embedding model initialized successfully")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize embedding model: {e}", exc_info=True)
-    raise
+# Module-level variables (lazy initialized)
+_embedding_model = None
+_driver = None
 
-# Get database name and connection URL
+# Get database configuration
 db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
-neo4j_uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
-neo4j_password = os.getenv("password", "")
+neo4j_uri = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
+neo4j_username = os.getenv('NEO4J_USERNAME', 'neo4j')
+neo4j_password = os.getenv('NEO4J_PASSWORD', '')
 
-# Initialize Neo4j driver with error handling
-try:
-    if not neo4j_password:
-        logger.error("❌ Neo4j password not found in environment variables")
-        raise ValueError("Neo4j password is required. Set 'password' in .env")
+
+def get_embedding_model():
+    """Lazy initialization of embedding model"""
+    global _embedding_model
     
-    logger.info(f"🔧 Connecting to Neo4j at {neo4j_uri}...")
-    driver = GraphDatabase.driver(
-        neo4j_uri,
-        auth=("neo4j", neo4j_password)
-    )
-    # Test connection
-    with driver.session(database=db_name) as session:
-        session.run("RETURN 1").single()
-    logger.info(f"✅ Neo4j driver initialized successfully (database: {db_name})")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Neo4j driver: {e}", exc_info=True)
-    raise
+    if _embedding_model is None:
+        try:
+            google_api_key = os.getenv("GOOGLE_API_KEY", "")
+            if not google_api_key:
+                logger.error("❌ GOOGLE_API_KEY not found in environment variables")
+                raise ValueError("GOOGLE_API_KEY is required for embedding model initialization")
+            
+            logger.info("🔧 Initializing Google Generative AI Embeddings...")
+            _embedding_model = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004",
+                google_api_key=google_api_key,
+            )
+            logger.info("✅ Embedding model initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize embedding model: {e}", exc_info=True)
+            raise
+    
+    return _embedding_model
+
+
+def get_driver():
+    """Lazy initialization of Neo4j driver with comprehensive error handling"""
+    global _driver
+    
+    if _driver is None:
+        try:
+            # Validate password
+            if not neo4j_password:
+                logger.error("❌ NEO4J_PASSWORD not found in environment variables")
+                logger.error("💡 Set NEO4J_PASSWORD in your backend/.env file")
+                raise ValueError("Neo4j password is required. Set NEO4J_PASSWORD in .env")
+            
+            logger.info(f"🔧 Connecting to Neo4j at {neo4j_uri}...")
+            logger.debug(f"👤 Username: {neo4j_username}")
+            logger.debug(f"🗄️  Database: {db_name}")
+            
+            _driver = GraphDatabase.driver(
+                neo4j_uri,
+                auth=(neo4j_username, neo4j_password)
+            )
+            
+            # Test connection
+            logger.debug("🔍 Testing connection...")
+            with _driver.session(database=db_name) as session:
+                session.run("RETURN 1").single()
+            logger.info(f"✅ Neo4j driver initialized successfully (database: {db_name})")
+            
+        except ValueError as ve:
+            # Re-raise validation errors as-is
+            raise
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Authentication errors
+            if "authentication" in error_msg or "unauthorized" in error_msg:
+                logger.error("❌ Neo4j Authentication Failed!")
+                logger.error(f"   URI: {neo4j_uri}")
+                logger.error(f"   Username: {neo4j_username}")
+                logger.error(f"   Error: {e}")
+                logger.error("")
+                logger.error("💡 Fix: Check NEO4J_USERNAME and NEO4J_PASSWORD in backend/.env")
+                raise RuntimeError("Neo4j authentication failed. Verify credentials in .env") from e
+            
+            # Connection errors
+            elif "connection" in error_msg or "unable to" in error_msg:
+                logger.error("❌ Cannot connect to Neo4j!")
+                logger.error(f"   URI: {neo4j_uri}")
+                logger.error(f"   Error: {e}")
+                logger.error("")
+                logger.error("💡 Fixes:")
+                logger.error("   - Verify NEO4J_URI in backend/.env")
+                logger.error("   - Ensure Neo4j is running (local) or URI is correct (Aura)")
+                raise RuntimeError(f"Cannot connect to Neo4j at {neo4j_uri}") from e
+            
+            # Database not found
+            elif "database" in error_msg and "not found" in error_msg:
+                logger.error(f"❌ Database '{db_name}' not found!")
+                logger.error("💡 Fix: Check NEO4J_DATABASE in backend/.env or use default 'neo4j'")
+                raise RuntimeError(f"Database '{db_name}' does not exist") from e
+            
+            # Generic error
+            else:
+                logger.error(f"❌ Failed to initialize Neo4j driver: {e}", exc_info=True)
+                raise RuntimeError(f"Neo4j initialization failed: {e}") from e
+    
+    return _driver
+
+
+def close_connections():
+    """Close all connections gracefully"""
+    global _driver
+    
+    if _driver is not None:
+        try:
+            _driver.close()
+            logger.info("✅ Neo4j driver closed successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing Neo4j driver: {e}")
+        finally:
+            _driver = None
 
 # List of vector indexes to search
 SUMMARY_INDEXES = [
@@ -88,6 +163,7 @@ def retrieve_semantic_results(query: str, top_k: int = 10, use_code_index: bool 
     try:
         # Embed the query
         logger.debug("📊 Generating query embedding...")
+        embedding_model = get_embedding_model()  # Lazy initialization
         embedding = embedding_model.embed_query(query)
         logger.debug(f"✅ Generated embedding vector of length {len(embedding)}")
     except Exception as e:
@@ -98,6 +174,7 @@ def retrieve_semantic_results(query: str, top_k: int = 10, use_code_index: bool 
     indexes = CODE_INDEXES if use_code_index else SUMMARY_INDEXES
 
     try:
+        driver = get_driver()  # Lazy initialization
         with driver.session(database=db_name) as session:
             for index_name, node_type in indexes:
                 try:
@@ -172,6 +249,7 @@ def retrieve_graph_based_results(query: str, top_k: int = 10, repository: str = 
     
     all_results = []
     
+    driver = get_driver()  # Lazy initialization
     with driver.session(database=db_name) as session:
         try:
             if repository:
@@ -242,6 +320,7 @@ def retrieve_related_nodes(node_name: str, node_type: str, depth: int = 2, repos
     
     related_results = []
     
+    driver = get_driver()  # Lazy initialization
     with driver.session(database=db_name) as session:
         try:
             # Get child nodes (the graph uses CHILD relationships, not PARENT)

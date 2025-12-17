@@ -39,11 +39,12 @@ def check_environment():
     required_vars = {
         'ACCESS_TOKEN': 'GitHub Personal Access Token',
         'GOOGLE_API_KEY': 'Google Gemini API Key',
-        'password': 'Neo4j Database Password'
+        'NEO4J_PASSWORD': 'Neo4j Database Password'
     }
     
     optional_vars = {
-        'NEO4J_CONNECTION_URL': 'Neo4j Connection URL (default: neo4j://127.0.0.1:7687)'
+        'NEO4J_URI': 'Neo4j Connection URI (default: neo4j://127.0.0.1:7687)',
+        'NEO4J_USERNAME': 'Neo4j Username (default: neo4j)'
     }
     
     missing = []
@@ -75,21 +76,25 @@ def check_environment():
     return True
 
 def check_neo4j():
-    """Check if Neo4j is running"""
+    """Check if Neo4j is running with comprehensive error handling"""
     print("\n🔍 Checking Neo4j connection...")
     try:
         from neo4j import GraphDatabase
         
         # Get connection URL from env or use default
-        uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
-        password = os.getenv('password', '')
+        uri = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
+        username = os.getenv('NEO4J_USERNAME', 'neo4j')
+        password = os.getenv('NEO4J_PASSWORD', '')
         
         if not password:
-            print("⚠️  Neo4j password not configured in .env")
+            print("⚠️  NEO4J_PASSWORD not configured in backend/.env")
+            print("💡 Add NEO4J_PASSWORD to your backend/.env file")
             return False
         
-        print(f"   Connecting to: {uri}")
-        driver = GraphDatabase.driver(uri, auth=("neo4j", password))
+        print(f"   URI: {uri}")
+        print(f"   Username: {username}")
+        
+        driver = GraphDatabase.driver(uri, auth=(username, password))
         
         # Test connection with neo4j database
         with driver.session(database="neo4j") as session:
@@ -98,9 +103,48 @@ def check_neo4j():
         driver.close()
         print("✅ Neo4j is running and accessible!")
         return True
+        
     except Exception as e:
-        print(f"❌ Neo4j connection failed: {str(e)}")
-        print(f"📝 Make sure Neo4j is running on {uri}")
+        error_msg = str(e).lower()
+        
+        # Authentication errors
+        if "authentication" in error_msg or "unauthorized" in error_msg:
+            print("❌ Neo4j Authentication Failed!")
+            print(f"   Error: {e}")
+            print("")
+            print("💡 Fixes:")
+            print(f"   1. Check NEO4J_USERNAME (current: '{username}')")
+            print("   2. Check NEO4J_PASSWORD in backend/.env")
+            print("   3. For Aura: Use credentials from Aura console")
+            return False
+        
+        # Connection errors
+        elif "connection" in error_msg or "failed to establish" in error_msg:
+            print("❌ Cannot connect to Neo4j!")
+            print(f"   URI: {uri}")
+            print(f"   Error: {e}")
+            print("")
+            print("💡 Fixes:")
+            print("   1. For local Neo4j: Start Neo4j Desktop or service")
+            print("   2. For Aura: Verify URI in backend/.env")
+            print("      Example: neo4j+s://xxxxx.databases.neo4j.io")
+            return False
+        
+        # Protocol/SSL errors
+        elif "ssl" in error_msg or "certificate" in error_msg:
+            print("❌ SSL/Protocol error!")
+            print(f"   Error: {e}")
+            print("")
+            print("💡 Check NEO4J_URI protocol:")
+            print("   - Aura: neo4j+s://<instance>.databases.neo4j.io")
+            print("   - Local: neo4j://127.0.0.1:7687")
+            return False
+        
+        # Generic error
+        else:
+            print(f"❌ Neo4j connection failed: {str(e)}")
+            print(f"📝 Check configuration in backend/.env")
+            return False
         return False
 
 def start_server(port=8000):

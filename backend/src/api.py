@@ -52,16 +52,82 @@ llm = ChatGoogleGenerativeAI(
 )
 
 # Neo4j connection with production-ready pool configuration
-NEO4J_URI = os.getenv("NEO4J_CONNECTION_URL", "neo4j://127.0.0.1:7687")
-NEO4J_PASSWORD = os.getenv("password", "")
-driver = GraphDatabase.driver(
-    NEO4J_URI,
-    auth=("neo4j", NEO4J_PASSWORD),
-    max_connection_pool_size=50,
-    connection_acquisition_timeout=30.0,
-    max_transaction_retry_time=15.0,
-    keep_alive=True
-)
+NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
+
+# Initialize Neo4j driver with comprehensive error handling
+try:
+    if not NEO4J_PASSWORD:
+        logger.error("❌ NEO4J_PASSWORD is not set in environment variables")
+        logger.error("💡 Please set NEO4J_PASSWORD in your backend/.env file")
+        raise ValueError("NEO4J_PASSWORD is required. Check backend/.env file.")
+    
+    logger.info(f"🔗 Connecting to Neo4j at {NEO4J_URI}...")
+    logger.info(f"👤 Using username: {NEO4J_USERNAME}")
+    
+    driver = GraphDatabase.driver(
+        NEO4J_URI,
+        auth=(NEO4J_USERNAME, NEO4J_PASSWORD),
+        max_connection_pool_size=50,
+        connection_acquisition_timeout=30.0,
+        max_transaction_retry_time=15.0,
+        keep_alive=True
+    )
+    
+    # Test connection on startup
+    logger.info("🔍 Testing Neo4j connection...")
+    with driver.session(database="neo4j") as session:
+        session.run("RETURN 1").single()
+    logger.info("✅ Neo4j connection successful!")
+    
+except Exception as e:
+    error_msg = str(e).lower()
+    
+    # Authentication errors
+    if "authentication" in error_msg or "unauthorized" in error_msg or "credentials" in error_msg:
+        logger.error("❌ Neo4j Authentication Failed!")
+        logger.error(f"   Error: {e}")
+        logger.error("")
+        logger.error("💡 Possible fixes:")
+        logger.error("   1. Check NEO4J_USERNAME in backend/.env (current: '{}')" .format(NEO4J_USERNAME))
+        logger.error("   2. Check NEO4J_PASSWORD in backend/.env")
+        logger.error("   3. For Neo4j Aura: Use credentials from Aura console")
+        logger.error("   4. For local Neo4j: Verify password in Neo4j Browser")
+        raise RuntimeError(f"Neo4j authentication failed. Check your credentials in backend/.env") from e
+    
+    # Connection errors
+    elif "failed to establish connection" in error_msg or "unable to connect" in error_msg or "connection refused" in error_msg:
+        logger.error("❌ Cannot connect to Neo4j database!")
+        logger.error(f"   URI: {NEO4J_URI}")
+        logger.error(f"   Error: {e}")
+        logger.error("")
+        logger.error("💡 Possible fixes:")
+        logger.error("   1. Check if Neo4j is running (local) or URI is correct (Aura)")
+        logger.error("   2. Verify NEO4J_URI in backend/.env")
+        logger.error("      - Local: neo4j://127.0.0.1:7687")
+        logger.error("      - Aura: neo4j+s://<instance>.databases.neo4j.io")
+        logger.error("   3. Check firewall/network settings")
+        raise RuntimeError(f"Cannot connect to Neo4j at {NEO4J_URI}. Check if database is running.") from e
+    
+    # Protocol/SSL errors (Aura-specific)
+    elif "ssl" in error_msg or "certificate" in error_msg or "encryption" in error_msg:
+        logger.error("❌ SSL/Encryption error connecting to Neo4j!")
+        logger.error(f"   Error: {e}")
+        logger.error("")
+        logger.error("💡 For Neo4j Aura, use: neo4j+s://<instance>.databases.neo4j.io")
+        logger.error("💡 For local Neo4j, use: neo4j://127.0.0.1:7687")
+        raise RuntimeError("SSL/Encryption error. Check NEO4J_URI protocol (neo4j+s:// for Aura).") from e
+    
+    # Generic error
+    else:
+        logger.error("❌ Failed to initialize Neo4j driver!")
+        logger.error(f"   URI: {NEO4J_URI}")
+        logger.error(f"   Username: {NEO4J_USERNAME}")
+        logger.error(f"   Error: {e}")
+        logger.error("")
+        logger.error("💡 Check your Neo4j configuration in backend/.env")
+        raise RuntimeError(f"Neo4j initialization failed: {e}") from e
 
 # WebSocket connection manager
 class ConnectionManager:

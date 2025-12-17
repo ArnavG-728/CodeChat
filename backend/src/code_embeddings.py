@@ -12,10 +12,11 @@ load_dotenv()
 
 # Setup logger
 logger = setup_logger(__name__)
-password = os.getenv('password', '')
+password = os.getenv('NEO4J_PASSWORD', '')
+username = os.getenv('NEO4J_USERNAME', 'neo4j')
 db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
-neo4j_host = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687').replace('neo4j://', '')
-config.DATABASE_URL = f"neo4j://neo4j:{password}@{neo4j_host}/{db_name}"
+neo4j_host = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687').replace('neo4j://', '').replace('neo4j+s://', '')
+config.DATABASE_URL = f"neo4j://{username}:{password}@{neo4j_host}/{db_name}"
 
 # Step 2: Init device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

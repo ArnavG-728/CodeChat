@@ -9,13 +9,14 @@ load_dotenv()
 logger = setup_logger(__name__)
 
 # Environment variables with defaults
-password = os.getenv('password', '')
+password = os.getenv('NEO4J_PASSWORD', '')
+username = os.getenv('NEO4J_USERNAME', 'neo4j')
 db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
-neo4j_uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
+neo4j_uri = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
 
 def create_vector_indexes(dimension=768):
     """Create vector indexes for code and summary embeddings after all embeddings are generated."""
-    driver = GraphDatabase.driver(neo4j_uri, auth=("neo4j", password))
+    driver = GraphDatabase.driver(neo4j_uri, auth=(username, password))
     
     with driver.session(database=db_name) as session:
         index_queries = [

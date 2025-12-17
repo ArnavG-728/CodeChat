@@ -13,13 +13,13 @@ load_dotenv()
 
 # Setup logger
 logger = setup_logger(__name__)
-NEO4J_USER = "neo4j"
+NEO4J_USERNAME = os.getenv('NEO4J_USERNAME', 'neo4j')
 # Get environment variables with defaults
-NEO4J_PASSWORD = os.getenv('password', '')
-NEO4J_URI = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
+NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', '')
+NEO4J_URI = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
 # Extract host and port from URI for bolt connection
-NEO4J_HOST = NEO4J_URI.replace('neo4j://', '').replace('bolt://', '').split(':')[0]
-NEO4J_PORT = NEO4J_URI.replace('neo4j://', '').replace('bolt://', '').split(':')[1] if ':' in NEO4J_URI else '7687'
+NEO4J_HOST = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '').split(':')[0]
+NEO4J_PORT = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '').split(':')[1].split('/')[0] if ':' in NEO4J_URI else '7687'
 
 NODE_TYPE_MAP = {
     "file": FileNode,
@@ -43,9 +43,21 @@ class IngestStructure:
 
         logger.info(f"⚙️ Using Neo4j database: {self.db_name} (repository: {repo_name})")
 
-        # Set DATABASE_URL for neomodel
-        neo4j_host = NEO4J_URI.replace('neo4j://', '').replace('bolt://', '')
-        config.DATABASE_URL = f"neo4j://{NEO4J_USER}:{NEO4J_PASSWORD}@{neo4j_host}/{self.db_name}"
+        # Validate Neo4j credentials
+        if not NEO4J_PASSWORD:
+            logger.error("❌ NEO4J_PASSWORD is not set!")
+            logger.error("💡 Set NEO4J_PASSWORD in backend/.env")
+            raise ValueError("NEO4J_PASSWORD is required for database operations")
+        
+        try:
+            # Set DATABASE_URL for neomodel
+            neo4j_host = NEO4J_URI.replace('neo4j://', '').replace('neo4j+s://', '').replace('bolt://', '')
+            config.DATABASE_URL = f"neo4j://{NEO4J_USERNAME}:{NEO4J_PASSWORD}@{neo4j_host}/{self.db_name}"
+            logger.debug(f"🔗 Database URL configured for {neo4j_host}")
+        except Exception as e:
+            logger.error(f"❌ Failed to configure database URL: {e}")
+            logger.error("💡 Check NEO4J_URI format in backend/.env")
+            raise
 
 
     def create_repository_node(self):
@@ -155,9 +167,10 @@ class IngestStructure:
         
         try:
             # Use raw Neo4j driver for validation queries
+            logger.debug(f"🔍 Validating repository structure for {self.repo_name}...")
             driver = GraphDatabase.driver(
                 f"bolt://{NEO4J_HOST}:{NEO4J_PORT}",
-                auth=(NEO4J_USER, NEO4J_PASSWORD)
+                auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
             )
             
             with driver.session(database=self.db_name) as session:
@@ -180,7 +193,7 @@ class IngestStructure:
                 logger.info(f"✅ Repository validation: {connected_count} nodes connected, {orphaned_count} orphaned")
                 
                 if orphaned_count > 0:
-                    logger.warning(f"⚠️ Found {orphaned_count} orphaned nodes not connected to repository!")
+                    logger.warning(f"⚠️  Found {orphaned_count} orphaned nodes not connected to repository!")
                 
                 return {
                     "connected": connected_count,
@@ -188,7 +201,15 @@ class IngestStructure:
                 }
             
         except Exception as e:
-            logger.error(f"❌ Error validating repository structure: {e}")
+            error_msg = str(e).lower()
+            if "authentication" in error_msg or "unauthorized" in error_msg:
+                logger.error("❌ Authentication failed during validation")
+                logger.error("💡 Check NEO4J_USERNAME and NEO4J_PASSWORD in backend/.env")
+            elif "connection" in error_msg:
+                logger.error("❌ Connection failed during validation")
+                logger.error("💡 Verify Neo4j is running and accessible")
+            else:
+                logger.error(f"❌ Error validating repository structure: {e}")
             return None
         finally:
             driver.close()
