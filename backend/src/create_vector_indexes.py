@@ -8,7 +8,8 @@ load_dotenv()
 # Setup logger
 logger = setup_logger(__name__)
 
-password = os.getenv('password')
+# Environment variables with defaults
+password = os.getenv('password', '')
 db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
 neo4j_uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
 

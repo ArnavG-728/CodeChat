@@ -13,15 +13,16 @@ logger = setup_logger(__name__)
 def main():
     load_dotenv()
     logger.info("🚀 Starting summary generation")
-    password = os.getenv('password')
+    password = os.getenv('password', '')
     db_name = os.getenv("NEO4J_DATABASE", "neo4j")  # Fallback to "neo4j" if not set
     neo4j_host = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687').replace('neo4j://', '')
     config.DATABASE_URL = f"neo4j://neo4j:{password}@{neo4j_host}/{db_name}"
-    google_api_key = os.getenv("GOOGLE_API_KEY")
+    google_api_key = os.getenv("GOOGLE_API_KEY", "")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
 
     logger.info("🤖 Initializing Gemini LLM...")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model=gemini_model,
         temperature=0.3,
         google_api_key=google_api_key
     )

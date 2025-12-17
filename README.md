@@ -98,14 +98,27 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file in the backend directory:
-```env
-ACCESS_TOKEN=your_github_token_here
-GOOGLE_API_KEY=your_gemini_api_key_here
-password=your_neo4j_password
-NEO4J_CONNECTION_URL=neo4j://127.0.0.1:7687
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+4. Configure environment variables:
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your actual credentials
+# See .env.example for detailed documentation of all variables
 ```
+
+**Required variables:**
+- `ACCESS_TOKEN` - GitHub Personal Access Token ([create one](https://github.com/settings/tokens))
+- `GOOGLE_API_KEY` - Google Gemini API Key ([get one](https://makersuite.google.com/app/apikey))
+- `password` - Neo4j database password
+- `NEO4J_CONNECTION_URL` - Neo4j connection URL (default: `neo4j://127.0.0.1:7687`)
+
+**Optional variables:**
+- `ALLOWED_ORIGINS` - CORS allowed origins (default: `http://localhost:3000,http://127.0.0.1:3000`)
+- `NEO4J_DATABASE` - Neo4j database name (default: `neo4j`)
+
+See `backend/.env.example` for complete documentation of all environment variables.
 
 5. Make sure Neo4j is running on `localhost:7687`
 
@@ -121,10 +134,16 @@ cd frontend
 npm install
 ```
 
-3. Create a `.env.local` file (optional):
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
+3. (Optional) Configure environment variables:
+```bash
+# Copy the example file
+cp .env.example .env.local
+
+# Edit .env.local if needed
+# Default API URL is http://localhost:8000
 ```
+
+The frontend will use `http://localhost:8000` by default. Only create `.env.local` if you need to override the API URL.
 
 ## 🎯 Usage
 
@@ -313,17 +332,6 @@ The system provides real-time health status:
 - **Embeddings**: Model status
 
 Hover over the connection indicator to see detailed status of all components.
-
-## 📊 Performance
-
-| Repository Size | Processing Time |
-|-----------------|-----------------|
-| Small (<100 files) | 5-15 min |
-| Medium (100-500 files) | 15-45 min |
-| Large (500-1000 files) | 45-90 min |
-| Very Large (1000+ files) | 1-3 hours |
-
-*First run downloads models (~500MB)*
 
 ## 🛠️ Technology Stack
 

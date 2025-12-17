@@ -43,37 +43,81 @@ class DynamicGithubLoader:
             branch: Branch name (default: main)
             access_token: GitHub access token
         """
+        # Validate repository format
+        if not repo or "/" not in repo:
+            logger.error(f"❌ Invalid repository format: {repo}")
+            raise ValueError(f"Invalid repository format. Expected 'owner/repo', got '{repo}'")
+        
         self.repo = repo
         self.branch = branch
-        self.access_token = access_token or os.getenv("ACCESS_TOKEN")
+        self.access_token = access_token or os.getenv("ACCESS_TOKEN", "")
         
         if not self.access_token:
-            logger.error("GitHub access token not found")
-            raise ValueError("GitHub access token not found. Set ACCESS_TOKEN in .env")
+            logger.error("❌ GitHub access token not found in environment or parameters")
+            raise ValueError("GitHub access token not found. Set ACCESS_TOKEN in .env or pass as parameter")
         
-        logger.info(f"Initializing GitHub loader for {repo} (branch: {branch})")
-        self.loader = GithubFileLoader(
-            repo=self.repo,
-            branch=self.branch,
-            access_token=self.access_token,
-            github_api_url="https://api.github.com",
-            file_filter=lambda filename: filename.endswith(TEXT_FILE_EXTENSIONS)
-        )
+        logger.info(f"🔧 Initializing GitHub loader for {repo} (branch: {branch})")
+        
+        try:
+            self.loader = GithubFileLoader(
+                repo=self.repo,
+                branch=self.branch,
+                access_token=self.access_token,
+                github_api_url="https://api.github.com",
+                file_filter=lambda filename: filename.endswith(TEXT_FILE_EXTENSIONS)
+            )
+            logger.info(f"✅ GitHub loader initialized successfully for {repo}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize GitHub loader: {e}", exc_info=True)
+            raise ValueError(f"Failed to initialize GitHub loader for {repo}: {str(e)}")
     
     def load(self):
         """Load documents from GitHub"""
-        logger.info(f"Loading documents from {self.repo}")
-        docs = self.loader.load()
-        logger.info(f"✅ Loaded {len(docs)} documents from {self.repo}")
-        return docs
+        logger.info(f"📥 Loading documents from {self.repo} (branch: {self.branch})")
+        
+        try:
+            docs = self.loader.load()
+            
+            if not docs:
+                logger.warning(f"⚠️ No documents found in {self.repo}")
+                return []
+            
+            logger.info(f"✅ Loaded {len(docs)} documents from {self.repo}")
+            return docs
+        except Exception as e:
+            logger.error(f"❌ Failed to load documents from {self.repo}: {e}", exc_info=True)
+            
+            # Provide user-friendly error messages
+            error_msg = str(e).lower()
+            if "404" in error_msg or "not found" in error_msg:
+                raise ValueError(f"Repository '{self.repo}' not found. Check the repository name and your access permissions.")
+            elif "401" in error_msg or "unauthorized" in error_msg:
+                raise ValueError(f"Authentication failed. Check your GitHub access token permissions.")
+            elif "403" in error_msg or "forbidden" in error_msg:
+                raise ValueError(f"Access forbidden to '{self.repo}'. Check repository visibility and token permissions.")
+            elif "timeout" in error_msg:
+                raise ValueError(f"Connection timeout while loading '{self.repo}'. Check your network connection.")
+            else:
+                raise ValueError(f"Failed to load repository '{self.repo}': {str(e)}")
     
     def get_file_list(self):
         """Get list of files in the repository"""
-        docs = self.load()
-        return [doc.metadata.get("source", "") for doc in docs]
+        try:
+            logger.debug(f"📋 Getting file list from {self.repo}")
+            docs = self.load()
+            file_list = [doc.metadata.get("source", "") for doc in docs]
+            logger.debug(f"✅ Retrieved {len(file_list)} files")
+            return file_list
+        except Exception as e:
+            logger.error(f"❌ Failed to get file list from {self.repo}: {e}", exc_info=True)
+            raise
 
 
 # For backward compatibility
 def create_loader(repo: str, branch: str = "main"):
     """Create a GitHub loader instance"""
-    return DynamicGithubLoader(repo, branch)
+    try:
+        return DynamicGithubLoader(repo, branch)
+    except Exception as e:
+        logger.error(f"❌ Failed to create loader for {repo}: {e}", exc_info=True)
+        raise

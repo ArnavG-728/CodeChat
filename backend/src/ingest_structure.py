@@ -14,7 +14,8 @@ load_dotenv()
 # Setup logger
 logger = setup_logger(__name__)
 NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = os.getenv('password')
+# Get environment variables with defaults
+NEO4J_PASSWORD = os.getenv('password', '')
 NEO4J_URI = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
 # Extract host and port from URI for bolt connection
 NEO4J_HOST = NEO4J_URI.replace('neo4j://', '').replace('bolt://', '').split(':')[0]

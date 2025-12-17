@@ -44,18 +44,19 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
-# Initialize LLM
+# Initialize LLM with configurable model
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite"),
+    google_api_key=os.getenv("GOOGLE_API_KEY", ""),
     temperature=0.2,
 )
 
 # Neo4j connection with production-ready pool configuration
 NEO4J_URI = os.getenv("NEO4J_CONNECTION_URL", "neo4j://127.0.0.1:7687")
+NEO4J_PASSWORD = os.getenv("password", "")
 driver = GraphDatabase.driver(
     NEO4J_URI,
-    auth=("neo4j", os.getenv("password")),
+    auth=("neo4j", NEO4J_PASSWORD),
     max_connection_pool_size=50,
     connection_acquisition_timeout=30.0,
     max_transaction_retry_time=15.0,
@@ -229,18 +230,19 @@ async def comprehensive_health_check():
     
     # Check Gemini API
     try:
-        google_api_key = os.getenv("GOOGLE_API_KEY")
+        google_api_key = os.getenv("GOOGLE_API_KEY", "")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
         if google_api_key:
             components["gemini"] = {
                 "status": "configured",
                 "message": "API key is configured",
-                "model": "gemini-2.5-flash"
+                "model": gemini_model
             }
         else:
             components["gemini"] = {
                 "status": "not_configured",
                 "message": "API key not found",
-                "model": "gemini-2.5-flash"
+                "model": gemini_model
             }
             overall_status = "degraded"
     except Exception as e:
@@ -253,7 +255,7 @@ async def comprehensive_health_check():
     
     # Check GitHub Access Token
     try:
-        access_token = os.getenv("ACCESS_TOKEN")
+        access_token = os.getenv("ACCESS_TOKEN", "")
         if access_token:
             components["github"] = {
                 "status": "configured",
@@ -380,7 +382,7 @@ async def process_repository_task(repo_url: str, branch: str, repo_name: str):
         loader = DynamicGithubLoader(
             repo=repo_url,
             branch=branch,
-            access_token=os.getenv("ACCESS_TOKEN")
+            access_token=os.getenv("ACCESS_TOKEN", "")
         )
         documents = loader.load()
         logger.info(f"✅ Loaded {len(documents)} documents from {repo_url}")

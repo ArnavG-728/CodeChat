@@ -13,21 +13,46 @@ logger = setup_logger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Initialize embedding model once
-embedding_model = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
-)
+# Initialize embedding model once with error handling
+try:
+    google_api_key = os.getenv("GOOGLE_API_KEY", "")
+    if not google_api_key:
+        logger.error("❌ GOOGLE_API_KEY not found in environment variables")
+        raise ValueError("GOOGLE_API_KEY is required for embedding model initialization")
+    
+    logger.info("🔧 Initializing Google Generative AI Embeddings...")
+    embedding_model = GoogleGenerativeAIEmbeddings(
+        model="models/text-embedding-004",
+        google_api_key=google_api_key,
+    )
+    logger.info("✅ Embedding model initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize embedding model: {e}", exc_info=True)
+    raise
 
 # Get database name and connection URL
 db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
 neo4j_uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
+neo4j_password = os.getenv("password", "")
 
-# Initialize Neo4j driver
-driver = GraphDatabase.driver(
-    neo4j_uri,
-    auth=("neo4j", os.getenv("password"))
-)
+# Initialize Neo4j driver with error handling
+try:
+    if not neo4j_password:
+        logger.error("❌ Neo4j password not found in environment variables")
+        raise ValueError("Neo4j password is required. Set 'password' in .env")
+    
+    logger.info(f"🔧 Connecting to Neo4j at {neo4j_uri}...")
+    driver = GraphDatabase.driver(
+        neo4j_uri,
+        auth=("neo4j", neo4j_password)
+    )
+    # Test connection
+    with driver.session(database=db_name) as session:
+        session.run("RETURN 1").single()
+    logger.info(f"✅ Neo4j driver initialized successfully (database: {db_name})")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize Neo4j driver: {e}", exc_info=True)
+    raise
 
 # List of vector indexes to search
 SUMMARY_INDEXES = [
@@ -49,66 +74,87 @@ def retrieve_semantic_results(query: str, top_k: int = 10, use_code_index: bool 
     Can search either summary or code embeddings.
     Optionally filters by repository.
     """
+    # Input validation
+    if not query or not query.strip():
+        logger.warning("⚠️ Empty query provided to retrieve_semantic_results")
+        return []
+    
+    if top_k < 1 or top_k > 50:
+        logger.warning(f"⚠️ Invalid top_k value: {top_k}, using default 10")
+        top_k = 10
+    
     logger.debug(f"🔍 Semantic search: {query[:50]}... (use_code_index={use_code_index}, repo={repository})")
     
-    # Embed the query
-    embedding = embedding_model.embed_query(query)
-    logger.debug(f"Generated embedding vector of length {len(embedding)}")
+    try:
+        # Embed the query
+        logger.debug("📊 Generating query embedding...")
+        embedding = embedding_model.embed_query(query)
+        logger.debug(f"✅ Generated embedding vector of length {len(embedding)}")
+    except Exception as e:
+        logger.error(f"❌ Failed to generate embedding for query: {e}", exc_info=True)
+        return []
 
     all_results = []
     indexes = CODE_INDEXES if use_code_index else SUMMARY_INDEXES
 
-    with driver.session(database=db_name) as session:
-        for index_name, node_type in indexes:
-            try:
-                if repository:
-                    # Filter by repository
-                    cypher = f"""
-                        CALL db.index.vector.queryNodes('{index_name}', {top_k * 2}, $embedding)
-                        YIELD node, score
-                        WHERE (:RepositoryNode {{name: $repo_name}})-[:CHILD*]->(node)
-                        RETURN 
-                            node.name AS name, 
-                            node.summary AS summary, 
-                            node.code AS code,
-                            node.lineno AS lineno,
-                            score
-                        ORDER BY score DESC
-                        LIMIT {top_k}
-                    """
-                    res = session.run(cypher, embedding=embedding, repo_name=repository)
-                else:
-                    # Original query without repository filter
-                    cypher = f"""
-                        CALL db.index.vector.queryNodes('{index_name}', {top_k}, $embedding)
-                        YIELD node, score
-                        RETURN 
-                            node.name AS name, 
-                            node.summary AS summary, 
-                            node.code AS code,
-                            node.lineno AS lineno,
-                            score
-                        ORDER BY score DESC
-                    """
-                    res = session.run(cypher, embedding=embedding)
-                
-                count = 0
-                for record in res:
-                    all_results.append({
-                        'type': node_type,
-                        'name': record['name'],
-                        'summary': record.get('summary') or "",
-                        'code': record.get('code') or "",
-                        'lineno': record.get('lineno') or 0,
-                        'score': record['score'],
-                        'search_type': 'code' if use_code_index else 'summary'
-                    })
-                    count += 1
-                logger.debug(f"Found {count} results from {index_name}")
-            except Exception as e:
-                logger.warning(f"⚠️ Error querying {index_name}: {e}")
+    try:
+        with driver.session(database=db_name) as session:
+            for index_name, node_type in indexes:
+                try:
+                    if repository:
+                        # Filter by repository
+                        cypher = f"""
+                            CALL db.index.vector.queryNodes('{index_name}', {top_k * 2}, $embedding)
+                            YIELD node, score
+                            WHERE (:RepositoryNode {{name: $repo_name}})-[:CHILD*]->(node)
+                            RETURN 
+                                node.name AS name, 
+                                node.summary AS summary, 
+                                node.code AS code,
+                                node.lineno AS lineno,
+                                score
+                            ORDER BY score DESC
+                            LIMIT {top_k}
+                        """
+                        res = session.run(cypher, embedding=embedding, repo_name=repository)
+                    else:
+                        # Original query without repository filter
+                        cypher = f"""
+                            CALL db.index.vector.queryNodes('{index_name}', {top_k}, $embedding)
+                            YIELD node, score
+                            RETURN 
+                                node.name AS name, 
+                                node.summary AS summary, 
+                                node.code AS code,
+                                node.lineno AS lineno,
+                                score
+                            ORDER BY score DESC
+                        """
+                        res = session.run(cypher, embedding=embedding)
+                    
+                    count = 0
+                    for record in res:
+                        all_results.append({
+                            'type': node_type,
+                            'name': record['name'],
+                            'summary': record.get('summary') or "",
+                            'code': record.get('code') or "",
+                            'lineno': record.get('lineno') or 0,
+                            'score': record['score'],
+                            'search_type': 'code' if use_code_index else 'summary'
+                        })
+                        count += 1
+                    logger.debug(f"✅ Found {count} results from {index_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error querying {index_name}: {e}")
+                    # Continue with other indexes instead of failing completely
+                    continue
+    except Exception as e:
+        logger.error(f"❌ Neo4j session error in retrieve_semantic_results: {e}", exc_info=True)
+        return []
 
     all_results.sort(key=lambda x: x['score'], reverse=True)
+    logger.info(f"🎯 Retrieved {len(all_results[:top_k])} semantic results")
     return all_results[:top_k]
 
 

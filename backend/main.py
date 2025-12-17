@@ -82,7 +82,7 @@ def check_neo4j():
         
         # Get connection URL from env or use default
         uri = os.getenv('NEO4J_CONNECTION_URL', 'neo4j://127.0.0.1:7687')
-        password = os.getenv('password')
+        password = os.getenv('password', '')
         
         if not password:
             print("⚠️  Neo4j password not configured in .env")
