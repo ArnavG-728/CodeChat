@@ -18,18 +18,30 @@ db_name = os.getenv('NEO4J_DATABASE', 'neo4j')
 neo4j_host = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687').replace('neo4j://', '').replace('neo4j+s://', '')
 config.DATABASE_URL = f"neo4j://{username}:{password}@{neo4j_host}/{db_name}"
 
-# Step 2: Init device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"💻 Using device: {device}")
+# Module-level variables for lazy initialization
+_model = None
+_device = None
 
-# Step 3: Load UniXcoder once
-logger.info("🧠 Loading UniXcoder model...")
-model = UniXcoder("microsoft/unixcoder-base")
-model.to(device)
-logger.info("✅ UniXcoder model loaded")
+def get_model():
+    """Lazy initialization of UniXcoder model"""
+    global _model, _device
+    
+    if _model is None:
+        # Initialize device
+        _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"💻 Using device: {_device}")
+        
+        # Load UniXcoder model
+        logger.info("🧠 Loading UniXcoder model...")
+        _model = UniXcoder("microsoft/unixcoder-base")
+        _model.to(_device)
+        logger.info("✅ UniXcoder model loaded")
+    
+    return _model, _device
 
 # Step 4: Define embedding function
 def encode_with_unixcoder(text):
+    model, device = get_model()  # Lazy load model
     tokens_ids = model.tokenize([text], max_length=512, mode="<encoder-only>")
     source_ids = torch.tensor(tokens_ids).to(device)
 
